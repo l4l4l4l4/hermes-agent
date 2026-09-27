@@ -74,35 +74,45 @@ const hasDetails = (msg: Msg): boolean => Boolean(msg.thinking || msg.tools?.len
 const isTodoStatus = (status: unknown): status is TodoItem['status'] =>
   status === 'pending' || status === 'in_progress' || status === 'completed' || status === 'cancelled'
 
-const parseTodos = (value: unknown): null | TodoItem[] => {
+export const parseTodoItems = (value: unknown): null | TodoItem[] => {
   if (!Array.isArray(value)) {
     return null
   }
 
   return value
     .map(item => {
-      if (!item || typeof item !== 'object') {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
         return null
       }
 
       const row = item as Record<string, unknown>
       const status = row.status
 
-      if (!isTodoStatus(status)) {
+      if (
+        typeof row.id !== 'string' ||
+        typeof row.content !== 'string' ||
+        (row.parent != null && typeof row.parent !== 'string') ||
+        !isTodoStatus(status)
+      ) {
         return null
       }
 
-      const id = String(row.id ?? '').trim()
-      const parent = String(row.parent ?? '').trim()
+      const content = row.content.trim()
+      const id = row.id.trim()
+      const parent = row.parent?.trim()
+
+      if (!id || !content) {
+        return null
+      }
 
       return {
-        content: String(row.content ?? '').trim(),
+        content,
         id,
         status,
         ...(parent && parent !== id ? { parent } : {})
       }
     })
-    .filter((item): item is TodoItem => Boolean(item?.id && item.content))
+    .filter((item): item is TodoItem => item !== null)
 }
 
 const textSegments = (segments: Msg[]) =>
@@ -511,10 +521,10 @@ class TurnController {
       return
     }
 
-    const todos = parseTodos(value)
+    const todos = parseTodoItems(value)
 
     if (todos !== null) {
-      patchTurnState({ todos })
+      patchTurnState({ conversationTodos: todos, todos })
     }
   }
 

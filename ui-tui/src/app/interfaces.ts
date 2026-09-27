@@ -33,6 +33,8 @@ import type {
   VaultUnlockReq
 } from '../types.js'
 
+import type { ConversationTaskStatus } from './conversationTaskStatus.js'
+
 export interface StateSetter<T> {
   (value: SetStateAction<T>): void
 }
@@ -511,6 +513,9 @@ export interface GatewayEventHandlerContext {
     stdout?: NodeJS.WriteStream
     sys: (text: string) => void
   }
+  task?: {
+    setFailed: (failed: boolean) => void
+  }
   transcript: {
     appendMessage: (msg: Msg) => void
     panel: (title: string, sections: PanelSection[]) => void
@@ -616,6 +621,7 @@ export interface AppLayoutStatusProps {
   showStickyPrompt: boolean
   statusColor: string
   stickyPrompt: string
+  taskStatus: ConversationTaskStatus
   turnStartedAt: null | number
   voiceLabel: string
 }

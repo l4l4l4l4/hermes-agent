@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs'
 
 import type { ScrollBoxHandle } from '@hermes/ink'
 import { evictInkCaches } from '@hermes/ink'
-import type { InflightTurn, SessionResumeResult, Usage } from '@hermes/shared/gateway-events'
+import type { InflightTurn, SessionResumeResult, TodoState, Usage } from '@hermes/shared/gateway-events'
 import { type RefObject, useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { STARTUP_WORKSPACE_CWD } from '../config/env.js'
@@ -24,7 +24,7 @@ import { applyConnectionRequest, clearConnectionOperation } from './connectionOp
 import type { ComposerActions, GatewayRpc, StateSetter } from './interfaces.js'
 import { patchOverlayState } from './overlayStore.js'
 import { scheduleResumeScrollToBottom } from './sessionResumeView.js'
-import { turnController } from './turnController.js'
+import { parseTodoItems, turnController } from './turnController.js'
 import { patchTurnState } from './turnStore.js'
 import { getUiState, patchUiState } from './uiStore.js'
 import { describeCredentialWarning } from './userMessages.js'
@@ -80,6 +80,15 @@ export const hydrateLiveSessionInflight = (inflight?: null | InflightTurn) => {
   }
 
   turnController.hydrateStreamingText(assistant)
+}
+
+export const restoreConversationTaskState = (todoState?: null | TodoState, inflight?: null | InflightTurn) => {
+  const todos = parseTodoItems(todoState?.todos)
+
+  patchTurnState({
+    ...(todos === null ? {} : { conversationTodos: todos, todos }),
+    failed: inflight?.status === 'error',
+  })
 }
 
 export const signalFreshSessionBoundary = (
@@ -153,10 +162,11 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
 
   const cancelResumeScrollRef = useRef<null | (() => void)>(null)
 
-  const resetSession = useCallback(() => {
+  const resetSession = useCallback((todoState?: null | TodoState, inflight?: null | InflightTurn) => {
     cancelResumeScrollRef.current?.()
     cancelResumeScrollRef.current = null
     turnController.fullReset()
+    restoreConversationTaskState(todoState, inflight)
     setVoiceRecording(false)
     setVoiceProcessing(false)
     patchUiState({ bgTasks: new Set(), info: null, sid: null, storedSid: null, usage: ZERO })
@@ -325,7 +335,7 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
           const storedSid = r.session_key || r.session_id
           const running = Boolean(r.running || r.status === 'working' || r.status === 'waiting')
 
-          resetSession()
+          resetSession(r.todo_state, r.inflight)
           setSessionStartedAt(r.started_at ? r.started_at * 1000 : Date.now())
           const transcript = [...toTranscriptMessages(r.messages), ...liveSessionInflightMessages(r.inflight)]
           setHistoryItems(info ? [introMsg(info), ...transcript] : transcript)
@@ -386,7 +396,7 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
 
             const running = Boolean(r.running || r.status === 'working' || r.status === 'waiting')
 
-            resetSession()
+            resetSession(r.todo_state, r.inflight)
             setSessionStartedAt(r.started_at ? r.started_at * 1000 : Date.now())
 
             const resumed = [...toTranscriptMessages(r.messages), ...liveSessionInflightMessages(r.inflight)]

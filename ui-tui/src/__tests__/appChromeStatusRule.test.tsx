@@ -88,6 +88,34 @@ const findElementWithText = (node: ReactNodeLike, needle: string): React.ReactEl
   return textContent(node).includes(needle) ? node : null
 }
 
+const findComponentByName = (node: ReactNodeLike, name: string): React.ReactElement | null => {
+  if (node === null || node === undefined || typeof node === 'boolean') {
+    return null
+  }
+
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = findComponentByName(child, name)
+
+      if (found) {
+        return found
+      }
+    }
+
+    return null
+  }
+
+  if (!React.isValidElement<{ children?: React.ReactNode }>(node)) {
+    return null
+  }
+
+  if (typeof node.type === 'function' && node.type.name === name) {
+    return node
+  }
+
+  return findComponentByName(node.props.children, name)
+}
+
 const baseProps = {
   bgCount: 0,
   busy: false,
@@ -103,6 +131,40 @@ const baseProps = {
   usage: { context_max: 200_000, context_percent: 25, context_used: 50_000, total: 50_000 },
   voiceLabel: ''
 }
+
+describe('StatusRule conversation task status', () => {
+  it.each([
+    ['done', 'DONE'],
+    ['in_progress', 'IN PROGRESS'],
+    ['blocked', 'BLOCKED'],
+    ['waiting_for_you', 'WAITING FOR YOU']
+  ] as const)('renders %s independently of the lifecycle status', (taskStatus, label) => {
+    const rendered = textContent(StatusRule({ ...baseProps, status: 'ready', taskStatus }))
+
+    expect(rendered).toContain(label)
+    expect(rendered).not.toContain('ready')
+  })
+
+  it('shows waiting for you instead of the running indicator while busy', () => {
+    const element = StatusRule({
+      ...baseProps,
+      busy: true,
+      taskStatus: 'waiting_for_you',
+      turnStartedAt: Date.now()
+    })
+
+    expect(textContent(element)).toContain('WAITING FOR YOU')
+    expect(findComponentByName(element, 'FaceTicker')).toBeNull()
+  })
+
+  it('keeps the running indicator while the current turn is busy', () => {
+    const rendered = textContent(
+      StatusRule({ ...baseProps, busy: true, taskStatus: 'in_progress', turnStartedAt: Date.now() })
+    )
+
+    expect(rendered).not.toContain('IN PROGRESS')
+  })
+})
 
 describe('StatusRule model label', () => {
   it('shows a clamped effort as what the route sends, never as a distinct level (#61634)', () => {
@@ -360,34 +422,6 @@ describe('StatusRule idle-since read-out', () => {
   // The IdleSince component uses hooks, so it can't be invoked outside a
   // renderer — assert on the element tree instead (same reason the duration
   // tests don't check SessionDuration's text).
-  const findComponentByName = (node: ReactNodeLike, name: string): React.ReactElement | null => {
-    if (node === null || node === undefined || typeof node === 'boolean') {
-      return null
-    }
-
-    if (Array.isArray(node)) {
-      for (const child of node) {
-        const found = findComponentByName(child, name)
-
-        if (found) {
-          return found
-        }
-      }
-
-      return null
-    }
-
-    if (!React.isValidElement(node)) {
-      return null
-    }
-
-    if (typeof node.type === 'function' && node.type.name === name) {
-      return node
-    }
-
-    return findComponentByName(node.props.children, name)
-  }
-
   it('shows time since the last final agent response when idle', () => {
     const endedAt = Date.now() - 42_000
 

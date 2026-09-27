@@ -50,6 +50,7 @@ import { onUserWidgets } from '../sdk/userWidgets.js'
 import type { Msg, PanelSection, SlashCatalog } from '../types.js'
 
 import { applyAgentSnapshot } from './agentRoster.js'
+import { conversationHasUserPrompt, conversationTaskStatus } from './conversationTaskStatus.js'
 import { createGatewayEventHandler } from './createGatewayEventHandler.js'
 import { createServerRequestHandler } from './createServerRequestHandler.js'
 import { createSlashHandler } from './createSlashHandler.js'
@@ -241,6 +242,9 @@ export function useMainApp(gw: GatewayClient) {
       state.todos.length
     )
   )
+
+  const taskFailed = useTurnSelector(state => state.failed)
+  const conversationTodos = useTurnSelector(state => state.conversationTodos)
 
   const slashFlightRef = useRef(0)
   const slashRef = useRef<(cmd: string) => boolean>(() => false)
@@ -928,6 +932,7 @@ export function useMainApp(gw: GatewayClient) {
         },
         submission: { submitLiteralRef, submitRef },
         system: { bellOnComplete, bellOnPrompt, stdout, sys },
+        task: { setFailed: failed => patchTurnState({ failed }) },
         transcript: { appendMessage, panel, setHistoryItems },
         voice: {
           setProcessing: setVoiceProcessing,
@@ -1395,8 +1400,12 @@ export function useMainApp(gw: GatewayClient) {
   const cwd = ui.info?.cwd || process.env.HERMES_CWD || process.cwd()
   const gitBranch = useGitBranch(cwd)
 
-  const appStatus = useMemo(
-    () => ({
+  const appStatus = useMemo(() => {
+    const hasUserPrompt = conversationHasUserPrompt(overlay)
+
+    const backgroundCount = ui.bgTasks.size + (ui.usage.active_subagents ?? 0)
+
+    return {
       // Cap the status-bar cwd/branch label tighter than the shared default so
       // it doesn't dominate the bar; the status rule reserves the left-side
       // essentials and truncates this further on narrow terminals.
@@ -1408,6 +1417,13 @@ export function useMainApp(gw: GatewayClient) {
       showStickyPrompt: !!stickyPrompt,
       statusColor: statusColorOf(ui.status, ui.theme.color),
       stickyPrompt,
+      taskStatus: conversationTaskStatus({
+        backgroundCount,
+        busy: ui.busy,
+        failed: taskFailed,
+        hasUserPrompt,
+        todos: conversationTodos
+      }),
       turnStartedAt: ui.sid ? turnStartedAt : null,
       // CLI parity: the classic prompt_toolkit status bar shows a red dot
       // on REC (cli.py:_get_voice_status_fragments line 2344).
@@ -1416,22 +1432,24 @@ export function useMainApp(gw: GatewayClient) {
         : voiceProcessing
           ? '◉ STT'
           : `voice ${voiceEnabled ? 'on' : 'off'}${voiceTts ? ' [tts]' : ''}`
-    }),
-    [
-      cwd,
-      gitBranch,
-      goodVibesTick,
-      lastTurnEndedAt,
-      sessionStartedAt,
-      stickyPrompt,
-      turnStartedAt,
-      ui,
-      voiceEnabled,
-      voiceProcessing,
-      voiceRecording,
-      voiceTts
-    ]
-  )
+    }
+  }, [
+    cwd,
+    gitBranch,
+    goodVibesTick,
+    lastTurnEndedAt,
+    overlay,
+    sessionStartedAt,
+    stickyPrompt,
+    taskFailed,
+    conversationTodos,
+    turnStartedAt,
+    ui,
+    voiceEnabled,
+    voiceProcessing,
+    voiceRecording,
+    voiceTts
+  ])
 
   const appTranscript = useMemo(
     () => ({ historyItems, scrollRef, virtualHistory, virtualRows }),

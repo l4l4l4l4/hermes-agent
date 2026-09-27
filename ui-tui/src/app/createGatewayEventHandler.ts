@@ -440,6 +440,7 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
   const { rpc } = ctx.gateway
   const { STARTUP_RESUME_ID, newSession, recoverSidRef, resumeById, setCatalog } = ctx.session
   const { bellOnComplete, bellOnPrompt, stdout, sys } = ctx.system
+  const setTaskFailed = ctx.task?.setFailed ?? (() => undefined)
 
   // display.bell_on_prompt — BEL whenever a blocking prompt modal opens
   // (same mechanism as bell_on_complete; works over SSH, triggers tmux bell-action).
@@ -1536,6 +1537,8 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
           ev.payload ?? {}
         )
 
+        setTaskFailed(ev.payload?.status === 'error')
+
         // Ctrl+C sealed the reply before the agent stopped streaming: take the
         // persisted partial so the screen shows what state.db (and the next
         // request) holds.
@@ -1630,6 +1633,7 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
       }
 
       case 'error':
+        setTaskFailed(true)
         turnController.recordError()
         flashPet('failed')
 

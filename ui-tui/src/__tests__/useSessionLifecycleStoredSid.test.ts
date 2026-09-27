@@ -4,8 +4,9 @@ import { renderSync } from '@hermes/ink'
 import React, { useEffect } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { conversationTaskStatus } from '../app/conversationTaskStatus.js'
 import { turnController } from '../app/turnController.js'
-import { resetTurnState } from '../app/turnStore.js'
+import { getTurnState, patchTurnState, resetTurnState } from '../app/turnStore.js'
 import { getUiState, resetUiState } from '../app/uiStore.js'
 import { useSessionLifecycle } from '../app/useSessionLifecycle.js'
 
@@ -75,5 +76,86 @@ describe('useSessionLifecycle durable session id', () => {
     await vi.waitFor(() => expect(getUiState().sid).toBe('runtime-42'))
     expect(request).toHaveBeenCalledWith('session.activate', { session_id: 'durable-key-123' })
     expect(getUiState().storedSid).toBe('durable-key-123')
+  })
+
+  it('restores a retained failed turn when activating a session', async () => {
+    const request = vi.fn(async () => ({
+      inflight: { error: 'provider failed', status: 'error' },
+      info: { cwd: '/tmp/w', model: 'test', skills: {}, tools: {} },
+      messages: [],
+      running: false,
+      session_id: 'failed-runtime',
+      session_key: 'failed-stored',
+      status: 'idle',
+      todo_state: {
+        revision: 2,
+        todos: [{ content: 'Retry provider call', id: 'retry', status: 'pending' }]
+      }
+    }))
+
+    const api = mountLifecycle(request)
+
+    await vi.waitFor(() => expect(api()).toBeTruthy())
+    api().activateLiveSession('failed-stored')
+
+    await vi.waitFor(() => expect(getUiState().sid).toBe('failed-runtime'))
+    const turn = getTurnState()
+    expect(turn.failed).toBe(true)
+    expect(turn.todos).toEqual([{ content: 'Retry provider call', id: 'retry', status: 'pending' }])
+    expect(
+      conversationTaskStatus({
+        backgroundCount: 0,
+        busy: getUiState().busy,
+        failed: turn.failed,
+        hasUserPrompt: false,
+        todos: turn.todos
+      })
+    ).toBe('blocked')
+  })
+
+  it('restores authoritative todos on resume without leaking the prior session failure', async () => {
+    patchTurnState({ failed: true })
+
+    const request = vi.fn(async (method: string) => {
+      if (method === 'session.resume') {
+        return {
+          inflight: null,
+          info: { cwd: '/tmp/w', model: 'test', skills: {}, tools: {} },
+          messages: [],
+          running: false,
+          session_id: 'todo-runtime',
+          status: 'idle',
+          stored_session_id: 'todo-stored',
+          todo_state: {
+            revision: 4,
+            todos: [
+              { content: 'Verify release', id: 'verify', status: 'in_progress' },
+              { content: 'Untrusted status', id: 'bad', status: 'unknown' }
+            ]
+          }
+        }
+      }
+
+      return null
+    })
+
+    const api = mountLifecycle(request)
+
+    await vi.waitFor(() => expect(api()).toBeTruthy())
+    await api().resumeById('todo-stored')
+
+    await vi.waitFor(() => expect(getUiState().sid).toBe('todo-runtime'))
+    const turn = getTurnState()
+    expect(turn.failed).toBe(false)
+    expect(turn.todos).toEqual([{ content: 'Verify release', id: 'verify', status: 'in_progress' }])
+    expect(
+      conversationTaskStatus({
+        backgroundCount: 0,
+        busy: getUiState().busy,
+        failed: turn.failed,
+        hasUserPrompt: false,
+        todos: turn.todos
+      })
+    ).toBe('in_progress')
   })
 })

@@ -5,6 +5,7 @@ import { useStore } from '@nanostores/react'
 import { type ReactNode, type RefObject, useEffect, useMemo, useRef, useState } from 'react'
 import unicodeSpinners from 'unicode-animations'
 
+import type { ConversationTaskStatus } from '../app/conversationTaskStatus.js'
 import { $delegationState } from '../app/delegationStore.js'
 import type { BatteryInfo, IndicatorStyle, Notice } from '../app/interfaces.js'
 import { $isStatusRuleOccluded } from '../app/overlayStore.js'
@@ -503,6 +504,7 @@ export function StatusRule({
   busy,
   compacting = false,
   status,
+  taskStatus,
   statusBarFields = null,
   statusColor,
   model,
@@ -547,6 +549,26 @@ export function StatusRule({
   const bar = !segs.compactCtx && usage.context_max && ok('context_pct') ? ctxBar(pct) : ''
   const modelText = modelLabel(model, modelReasoningEffort, modelFast, modelReasoningEffortWire)
 
+  const taskStatusLabel = taskStatus
+    ? {
+        blocked: 'BLOCKED',
+        done: 'DONE',
+        in_progress: 'IN PROGRESS',
+        waiting_for_you: 'WAITING FOR YOU'
+      }[taskStatus]
+    : status
+
+  const taskStatusColor = taskStatus
+    ? {
+        blocked: t.color.error,
+        done: t.color.statusGood,
+        in_progress: t.color.accent,
+        waiting_for_you: t.color.warn
+      }[taskStatus]
+    : statusColor
+
+  const showBusyIndicator = busy && taskStatus !== 'waiting_for_you'
+
   // Battery read-out — the first (pinned) status-bar element when enabled.
   const showBattery = !!battery && battery.available && battery.percent != null && ok('battery')
   const batteryText = showBattery ? batteryLabel(battery!) : ''
@@ -554,7 +576,7 @@ export function StatusRule({
   const batteryWidth = showBattery ? stringWidth(`${batteryText} │ `) : 0
 
   // A credits notice replaces the status/verb slot, but only when idle —
-  // while busy the FaceTicker always wins (R1 render priority). The notice
+  // while busy the turn state wins (R1 render priority). The notice
   // text carries its own glyph; we only tint it (R1) and let it shrink (R3-M7).
   const showNotice = !busy && !!notice?.text
   // The notice slot is shrinkable (flexShrink={1}, truncate-end), so reserve
@@ -570,11 +592,11 @@ export function StatusRule({
   // yields first. The busy face width depends on the active /indicator style
   // (kaomoji is wide + verb; unicode is a bare 1-col spinner). When a notice
   // occupies the slot it reserves only `noticeReserve` (it shrinks/truncates).
-  const slotWidth = busy
+  const slotWidth = showBusyIndicator
     ? busyIndicatorWidth(indicatorStyle, turnStartedAt != null)
     : showNotice
       ? noticeReserve
-      : stringWidth(status)
+      : stringWidth(taskStatusLabel)
 
   const essentialWidth =
     stringWidth('─ ') +
@@ -694,7 +716,7 @@ export function StatusRule({
               <Text color={t.color.muted}>{' │ '}</Text>
             </Text>
           ) : null}
-          {busy ? (
+          {showBusyIndicator ? (
             <FaceTicker
               color={statusColor}
               startedAt={turnStartedAt}
@@ -702,8 +724,8 @@ export function StatusRule({
               verbOverride={compacting ? 'compacting' : undefined}
             />
           ) : showNotice ? null : (
-            <Text color={statusColor} wrap="truncate-end">
-              {status}
+            <Text color={taskStatusColor} wrap="truncate-end">
+              {taskStatusLabel}
             </Text>
           )}
         </Box>
@@ -966,6 +988,7 @@ interface StatusRuleProps {
   sessionStartedAt?: null | number
   sessionTitle?: string
   status: string
+  taskStatus?: ConversationTaskStatus
   // display.status_bar.fields — segment visibility filter shared with the
   // classic CLI bar. null = defaults (everything shows).
   statusBarFields?: null | ReadonlySet<string>

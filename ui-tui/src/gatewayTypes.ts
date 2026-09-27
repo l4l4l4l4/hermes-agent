@@ -4,6 +4,7 @@ import type {
   GatewayEvent,
   GatewayEventName,
   InflightTurn,
+  TodoState,
   TranscriptMessage,
   Usage
 } from '@hermes/shared/gateway-events'
@@ -215,6 +216,7 @@ export interface SessionActivateResponse {
   session_key?: string
   started_at?: number
   status?: LiveSessionStatus
+  todo_state?: null | TodoState
 }
 
 export interface SessionDeleteResponse {

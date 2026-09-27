@@ -53,6 +53,9 @@ const buildCtx = (appended: Msg[]) =>
       bellOnComplete: false,
       sys: vi.fn()
     },
+    task: {
+      setFailed: vi.fn()
+    },
     transcript: {
       appendMessage: (msg: Msg) => appended.push(msg),
       panel: (title: string, sections: any[]) =>
@@ -197,6 +200,26 @@ describe('createGatewayEventHandler', () => {
     expect(getUiState().info?.stored_session_id).toBe('durable-2')
   })
 
+  it('records whether the completed turn failed for conversation status', () => {
+    const ctx = buildCtx([])
+    const onEvent = createGatewayEventHandler(ctx)
+
+    onEvent({ payload: { partial: true, status: 'error', text: 'partial reply' }, type: 'message.complete' } as any)
+    expect(ctx.task.setFailed).toHaveBeenLastCalledWith(true)
+
+    onEvent({ payload: { status: 'ok', text: 'recovered' }, type: 'message.complete' } as any)
+    expect(ctx.task.setFailed).toHaveBeenLastCalledWith(false)
+  })
+
+  it('records an unhandled gateway error as a blocked conversation', () => {
+    const ctx = buildCtx([])
+    const onEvent = createGatewayEventHandler(ctx)
+
+    onEvent({ payload: { message: 'provider unavailable' }, type: 'error' } as any)
+
+    expect(ctx.task.setFailed).toHaveBeenLastCalledWith(true)
+  })
+
   it('archives incomplete todos into transcript flow at end of turn so they scroll up', () => {
     const appended: Msg[] = []
 
@@ -223,6 +246,7 @@ describe('createGatewayEventHandler', () => {
     // doesn't visibly jump across the final answer at end-of-turn.
     expect(appended.indexOf(trail!)).toBeLessThan(appended.indexOf(finalText!))
     expect(getTurnState().todos).toEqual([])
+    expect(getTurnState().conversationTodos).toEqual(todos)
   })
 
   it('opens a billing confirm dialog routing Nous to /topup', () => {
